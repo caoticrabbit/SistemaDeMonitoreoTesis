@@ -1,0 +1,129 @@
+// SUBESTACIÓN DIGITAL MINI - CÓDIGO ARDUINO UNO
+// Funciones: Lectura de sensores, lógica de protección,
+// control de interruptor y comunicación serial
+
+// DEFINICIÓN DE PINES
+#define CURRENT_SENSOR_PIN A0
+#define VOLTAGE_SENSOR_PIN A2
+#define BREAKER_PIN 7
+#define LED_FAULT_PIN 9
+#define LED_NORMAL_PIN 10
+
+// PARÁMETROS DE PROTECCIÓN
+const float CURRENT_PICKUP = 1.2;
+const float CURRENT_INSTANT = 2.0;
+const float TRIP_DELAY_MS = 500;
+
+// VARIABLES GLOBALES
+float current = 0;
+float voltage = 0;
+bool breakerState = true;
+bool faultDetected = false;
+unsigned long faultStartTime = 0;
+
+// CONSTANTES DE CALIBRACIÓN
+const float VOLTAGE_FACTOR = 24.5;
+const float CURRENT_OFFSET = 2.5;
+const float CURRENT_SENSITIVITY = 0.185;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BREAKER_PIN, OUTPUT);
+  pinMode(LED_FAULT_PIN, OUTPUT);
+  pinMode(LED_NORMAL_PIN, OUTPUT);
+
+  digitalWrite(BREAKER_PIN, HIGH);
+  digitalWrite(LED_NORMAL_PIN, HIGH);
+  digitalWrite(LED_FAULT_PIN, LOW);
+  breakerState = true;
+
+  Serial.println("SISTEMA DE PROTECCION INICIADO");
+}
+
+void loop() {
+  readSensors();
+  runProtection();
+
+  if (millis() - lastSerialTime >= 100) {
+    sendDataToMonitor();
+    lastSerialTime = millis();
+  }
+
+  processSerialCommands();
+  delay(10);
+}
+
+void readSensors() {
+  int rawCurrent = analogRead(CURRENT_SENSOR_PIN);
+  float voltageOut = (rawCurrent / 1023.0) * 5.0;
+  current = (voltageOut - CURRENT_OFFSET) / CURRENT_SENSITIVITY;
+  if (current < 0) current = 0;
+
+  int rawVoltage = analogRead(VOLTAGE_SENSOR_PIN);
+  float voltageOutV = (rawVoltage / 1023.0) * 5.0;
+  voltage = voltageOutV * VOLTAGE_FACTOR;
+}
+
+void runProtection() {
+  if (!breakerState) return;
+
+  if (current >= CURRENT_INSTANT) {
+    tripBreaker("INSTANTANEO");
+    return;
+  }
+
+  if (current >= CURRENT_PICKUP) {
+    if (!faultDetected) {
+      faultDetected = true;
+      faultStartTime = millis();
+    }
+    else if (millis() - faultStartTime >= TRIP_DELAY_MS) {
+      tripBreaker("TEMPORIZADO");
+    }
+  }
+  else {
+    faultDetected = false;
+  }
+}
+
+void tripBreaker(String reason) {
+  digitalWrite(BREAKER_PIN, LOW);
+  breakerState = false;
+  faultDetected = false;
+
+  digitalWrite(LED_FAULT_PIN, HIGH);
+  digitalWrite(LED_NORMAL_PIN, LOW);
+
+  Serial.print("FALLA:");
+  Serial.print(reason);
+  Serial.print(",I:");
+  Serial.println(current);
+}
+
+void sendDataToMonitor() {
+  Serial.print(voltage, 1);
+  Serial.print(",");
+  Serial.print(current, 2);
+  Serial.print(",");
+  Serial.print(voltage * current, 1);
+  Serial.print(",");
+  Serial.println(breakerState ? 1 : 0);
+}
+
+void processSerialCommands() {
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+
+    if (command == "CLOSE") {
+      digitalWrite(BREAKER_PIN, HIGH);
+      breakerState = true;
+      digitalWrite(LED_FAULT_PIN, LOW);
+      digitalWrite(LED_NORMAL_PIN, HIGH);
+    }
+    else if (command == "OPEN") {
+      digitalWrite(BREAKER_PIN, LOW);
+      breakerState = false;
+    }
+  }
+}
