@@ -1,0 +1,84 @@
+import serial
+import tkinter as tk
+from datetime import datetime
+
+SERIAL_PORT = 'COM3'
+BAUD_RATE = 115200
+
+class SubstationMonitor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Subestación Digital Mini - Monitor")
+        self.root.geometry("800x500")
+        self.root.configure(bg='#1a1a2e')
+
+        self.voltage = tk.StringVar(value="0.0")
+        self.current = tk.StringVar(value="0.00")
+        self.power = tk.StringVar(value="0.0")
+        self.breaker_status = tk.StringVar(value="CERRADO")
+
+        self.build_interface()
+        self.connect_serial()
+        self.update_display()
+
+    def build_interface(self):
+        # Título
+        title = tk.Label(self.root, text="SUBESTACIÓN DIGITAL MINI",
+                         font=("Arial", 20, "bold"), bg='#1a1a2e', fg='#00ffcc')
+        title.pack(pady=10)
+
+        # Frame de mediciones
+        frame = tk.Frame(self.root, bg='#16213e', relief=tk.RAISED, bd=2)
+        frame.pack(pady=20, padx=20, fill=tk.X)
+
+        # Voltaje
+        tk.Label(frame, text="VOLTAJE", font=("Arial", 12), bg='#16213e', fg='white').grid(row=0, column=0, padx=30, pady=10)
+        tk.Label(frame, textvariable=self.voltage, font=("Arial", 32, "bold"), bg='#16213e', fg='#00ffcc').grid(row=1, column=0, padx=30)
+
+        # Corriente
+        tk.Label(frame, text="CORRIENTE", font=("Arial", 12), bg='#16213e', fg='white').grid(row=0, column=2, padx=30, pady=10)
+        tk.Label(frame, textvariable=self.current, font=("Arial", 32, "bold"), bg='#16213e', fg='#ffcc00').grid(row=1, column=2, padx=30)
+
+        # Potencia
+        tk.Label(frame, text="POTENCIA", font=("Arial", 12), bg='#16213e', fg='white').grid(row=0, column=4, padx=30, pady=10)
+        tk.Label(frame, textvariable=self.power, font=("Arial", 32, "bold"), bg='#16213e', fg='#ff6666').grid(row=1, column=4, padx=30)
+
+        # Botones
+        btn_frame = tk.Frame(self.root, bg='#1a1a2e')
+        btn_frame.pack(pady=20)
+
+        tk.Button(btn_frame, text="CERRAR INTERRUPTOR", font=("Arial", 11, "bold"), bg='#00cc66', fg='white', command=self.close_breaker, padx=20, pady=8).grid(row=0, column=0, padx=10)
+        tk.Button(btn_frame, text="ABRIR INTERRUPTOR", font=("Arial", 11, "bold"), bg='#ff4444', fg='white', command=self.open_breaker, padx=20, pady=8).grid(row=0, column=1, padx=10)
+
+    def connect_serial(self):
+        try:
+            self.serial_conn = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+        except:
+            print("Error de conexión serial")
+
+    def update_display(self):
+        if self.serial_conn and self.serial_conn.in_waiting:
+            try:
+                line = self.serial_conn.readline().decode('utf-8').strip()
+                parts = line.split(',')
+                if len(parts) >= 4:
+                    self.voltage.set(parts[0])
+                    self.current.set(parts[1])
+                    self.power.set(parts[2])
+                    self.breaker_status.set("CERRADO" if parts[3] == "1" else "ABIERTO")
+            except:
+                pass
+        self.root.after(100, self.update_display)
+
+    def close_breaker(self):
+        if self.serial_conn:
+            self.serial_conn.write(b'CLOSE\n')
+
+    def open_breaker(self):
+        if self.serial_conn:
+            self.serial_conn.write(b'OPEN\n')
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = SubstationMonitor(root)
+    root.mainloop()
